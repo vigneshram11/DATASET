@@ -1,0 +1,92 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from google.colab import drive
+
+# 1. Mount Google Drive
+drive.mount('/content/drive')
+
+# Change this path to the actual location of your file in Google Drive
+file_path = '/content/drive/MyDrive/synthetic_drug_consumption_raw.csv'
+output_path = '/content/drive/MyDrive/synthetic_drug_consumption_raw.csv'
+
+# Initialize df to None
+df = None
+
+# 2. Load the Dataset
+try:
+    df = pd.read_csv(file_path)
+    print("Dataset loaded successfully.")
+except FileNotFoundError:
+    print("Error: File not found. Please check the path.")
+
+# Only proceed if df was loaded successfully
+if df is not None:
+    # 3. Understand Data Structure
+    print(f"\nInitial Rows: {df.shape[0]}, Initial Columns: {df.shape[1]}")
+    print("\nData Types of columns:")
+    print(df.dtypes)
+
+    # 4. Data Cleaning - Categorical & Timing Values
+    # Identify non-numerical columns (Object/String/Datetime)
+    cat_cols = df.select_dtypes(exclude=[np.number]).columns
+
+    # Rule: If categorical or timing values are missing, remove the entire row
+    df.dropna(subset=cat_cols, inplace=True)
+    print(f"\nRows after removing missing categorical/timing data: {len(df)}")
+
+    # 5. Outlier Detection and Replacement (Interpolation)
+    # We use the Interquartile Range (IQR) method to detect outliers
+    num_cols = df.select_dtypes(include=[np.number]).columns
+
+    for col in num_cols:
+        Q1 = df[col].quantile(0.25)
+        Q3 = df[col].quantile(0.75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+
+        # Identify outliers and set them to NaN temporarily
+        outliers_mask = (df[col] < lower_bound) | (df[col] > upper_bound)
+        df.loc[outliers_mask, col] = np.nan
+
+        # Replace the newly created NaNs (outliers) using interpolation
+        df[col] = df[col].interpolate(method='linear', limit_direction='both')
+
+    print("Outliers handled via interpolation.")
+
+    # 6. Filling remaining Numerical Missing Values
+    # If any NaN values remain (that weren't outliers), fill with Median
+    for col in num_cols:
+        if df[col].isnull().sum() > 0:
+            df[col] = df[col].fillna(df[col].median())
+
+    print("Missing numerical values filled with median.")
+
+    # 7. Save the Cleaned Data to Google Drive
+    df.to_csv(output_path, index=False)
+    print(f"\nCleaned data saved to: {output_path}")
+    print(f"Final number of rows: {df.shape[0]}")
+
+    # 8. Visualization
+    # We will plot the distribution of the first numerical column found
+    if len(num_cols) > 0:
+        plt.figure(figsize=(12, 5))
+
+        # Subplot 1: Distribution
+        plt.subplot(1, 2, 1)
+        sns.histplot(df[num_cols[0]], kde=True, color='blue')
+        plt.title(f'Distribution of {num_cols[0]}')
+
+        # Subplot 2: Boxplot to verify outliers are gone
+        plt.subplot(1, 2, 2)
+        sns.boxplot(x=df[num_cols[0]], color='green')
+        plt.title(f'Boxplot of {num_cols[0]} (Cleaned)')
+
+        plt.tight_layout()
+        plt.show()
+    else:
+        print("No numerical columns found for visualization.")
+else:
+    print("Data loading failed, skipping further processing and visualization.")
